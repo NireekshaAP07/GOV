@@ -1,0 +1,9 @@
+{
+  "name": "national-material-master-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {"dev":"vite --host 0.0.0.0", "build":"tsc -b && vite build", "preview":"vite preview --host 0.0.0.0", "typecheck":"tsc -b --pretty"},
+  "dependencies": {"@vitejs/plugin-react":"latest", "vite":"latest", "react":"latest", "react-dom":"latest", "react-router-dom":"latest", "lucide-react":"^0.468.0", "recharts":"^2.15.0"},
+  "devDependencies": {"@types/react":"latest", "@types/react-dom":"latest", "typescript":"~5.7.2", "tailwindcss":"^3.4.17", "postcss":"^8.4.49", "autoprefixer":"^10.4.20"}
+}
