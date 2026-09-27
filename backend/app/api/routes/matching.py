@@ -25,7 +25,7 @@ def recommend(db:Session=Depends(get_db)):
     items=[to_dict(m)|{"id":m.id} for m in db.scalars(select(Material)).all()]
     recommendations=[]
     for a,b,result in candidates(items):
-        if result["final_score"]>=settings.confidence_thresholds.get("investigate",.60):
+        if result["final_score"]>=settings.confidence_thresholds.get("investigate",.60) or result["conflicting_features"]:
             pair=sorted((a["id"],b["id"]))
             existing=db.scalar(select(MaterialMatch).where(MaterialMatch.material_a_id==pair[0],MaterialMatch.material_b_id==pair[1]))
             if not existing:

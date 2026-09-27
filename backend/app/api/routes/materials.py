@@ -3,7 +3,7 @@ from io import BytesIO
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from rapidfuzz import fuzz
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.entities import CPSE, Material, MaterialMapping, NationalMaterial
@@ -59,6 +59,28 @@ def create_material(body: MaterialInput, cpse_code: str = Query(...), cpse_name:
     if db.scalar(select(Material.id).where(Material.cpse_id == cpse.id, Material.legacy_material_code == body.legacy_material_code)):
         raise HTTPException(409, "Legacy material code already exists for this CPSE")
     result = add_material(db, cpse, body.model_dump()); db.commit(); db.refresh(result); return result
+
+
+@router.get("")
+def list_materials(cpse: str | None = None, category: str | None = None, material: str | None = None,
+                   grade: str | None = None, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=200),
+                   db: Session = Depends(get_db)):
+    """Paginated, filterable browse of the full source-material corpus (Material Explorer)."""
+    stmt = select(Material, CPSE).join(CPSE)
+    if cpse: stmt = stmt.where(CPSE.code == cpse)
+    if category: stmt = stmt.where(Material.category == category)
+    if material: stmt = stmt.where(Material.material == material)
+    if grade: stmt = stmt.where(Material.grade == grade)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = db.execute(stmt.order_by(Material.id).offset((page - 1) * page_size).limit(page_size)).all()
+    items = []
+    for m, c in rows:
+        mapping = db.scalar(select(MaterialMapping).where(MaterialMapping.cpse_id == c.id, MaterialMapping.legacy_material_code == m.legacy_material_code))
+        nm = db.get(NationalMaterial, mapping.national_material_id) if mapping else None
+        items.append({"material": MaterialOut.model_validate(m).model_dump(), "cpse": {"code": c.code, "name": c.name},
+                     "national_material": ({"national_code": nm.national_code, "approval_status": nm.approval_status} if nm else None),
+                     "mapping": ({"confidence": mapping.mapping_confidence, "status": mapping.mapping_status} if mapping else None)})
+    return {"page": page, "page_size": page_size, "total": total, "total_pages": max(1, -(-total // page_size)), "items": items}
 
 
 @router.get("/search")
