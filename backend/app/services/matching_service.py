@@ -69,9 +69,26 @@ def candidates(materials: list[dict], per_material_limit: int = 8):
         best.setdefault(left,[]).append((result["final_score"],right,a,b,result))
         best.setdefault(right,[]).append((result["final_score"],left,a,b,result))
     selected={}
+    seen_conflict_signatures=set()
     for values in best.values():
-        for _,__,a,b,result in sorted(values,key=lambda value:(-value[0],value[1]))[:per_material_limit]:
+        ranked=sorted(values,key=lambda value:(-value[0],value[1]))
+        for _,__,a,b,result in {id(v): v for v in ranked[:per_material_limit]}.values():
             left,right=sorted((a.get("id",id(a)),b.get("id",id(b))))
+            selected[(left,right)]=result
+        # A genuine spec conflict (e.g. SS304 vs SS316) is by design scored
+        # low, so it can be crowded out of the per-material top-K by many
+        # higher-scoring true duplicates once the corpus is large -- exactly
+        # the failure mode a reviewer must never hit. We always keep at least
+        # one representative pair per DISTINCT conflicting description
+        # combination (not every raw id pair), so a genuine conflict category
+        # is never silently dropped without also flooding the review queue
+        # with thousands of near-identical repeats of the same conflict.
+        for _,__,a,b,result in ranked:
+            if not result["conflicting_features"]: continue
+            left,right=sorted((a.get("id",id(a)),b.get("id",id(b))))
+            signature=tuple(sorted((normalized[left],normalized[right])))
+            if signature in seen_conflict_signatures: continue
+            seen_conflict_signatures.add(signature)
             selected[(left,right)]=result
     for (left,right),result in sorted(selected.items()):
         yield by_id[left],by_id[right],result

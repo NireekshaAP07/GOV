@@ -124,3 +124,34 @@ class ProcurementRecord(Base):
     unit_price: Mapped[float] = mapped_column(Float, nullable=False)
     supplier: Mapped[str | None] = mapped_column(String(200))
     procurement_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class User(Base):
+    """Minimal user/role model backing JWT auth. See app/core/security.py."""
+    __tablename__ = "app_user"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(200), nullable=False)
+    role: Mapped[str] = mapped_column(String(30), default="REVIEWER", nullable=False)  # ADMIN | REVIEWER
+    full_name: Mapped[str | None] = mapped_column(String(150))
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+
+class NationalMaterialVersion(Base):
+    """
+    Snapshot taken every time a national material's standard description or
+    status changes via a review decision (MODIFY/APPROVE), so version history
+    is a real append-only log instead of just the latest state on
+    NationalMaterial.version. Written from app/api/routes/reviews.py.
+    """
+    __tablename__ = "national_material_version"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    national_material_id: Mapped[int] = mapped_column(ForeignKey("national_material.id"), index=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    standard_description: Mapped[str] = mapped_column(Text, nullable=False)
+    approval_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    changed_by: Mapped[str | None] = mapped_column(String(120))
+    change_reason: Mapped[str | None] = mapped_column(String(30))  # CREATE | APPROVE | MODIFY
+    comments: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)

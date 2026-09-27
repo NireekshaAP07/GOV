@@ -32,9 +32,30 @@ def cluster_view(db):
 
 @router.get("/clusters")
 def list_clusters(db:Session=Depends(get_db)):
+    """
+    Complete, actionable duplicate-cluster view: for every cluster of
+    human-approved-equivalent materials, the full material records (not just
+    ids) plus every match edge inside the cluster with its live review status
+    -- so the Duplicate Detection page can render real state instead of a
+    bare id list.
+    """
+    all_materials = {m.id: m for m in db.scalars(select(Material)).all()}
+    all_matches = db.scalars(select(MaterialMatch)).all()
+    reviews_by_match = {r.match_id: r for r in db.scalars(select(Review)).all()}
     result=[]
     for index,material_ids in enumerate(cluster_view(db),start=1):
-        result.append({"cluster_id":index,"material_ids":material_ids})
+        member_set=set(material_ids)
+        edges=[m for m in all_matches if m.material_a_id in member_set and m.material_b_id in member_set]
+        result.append({
+            "cluster_id":index,
+            "materials":[{"id":mid,"legacy_material_code":all_materials[mid].legacy_material_code,
+                         "original_description":all_materials[mid].original_description,
+                         "cpse_id":all_materials[mid].cpse_id} for mid in material_ids],
+            "matches":[{"match_id":e.id,"material_a_id":e.material_a_id,"material_b_id":e.material_b_id,
+                       "classification":e.classification,"final_score":e.final_score,"status":e.status,
+                       "conflicting_features":e.conflicting_features,
+                       "review_decision":reviews_by_match[e.id].decision if e.id in reviews_by_match else None} for e in edges],
+        })
     return {"clusters":result}
 
 

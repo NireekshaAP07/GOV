@@ -4,13 +4,21 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.database import Base, SessionLocal, engine
-from app.models.entities import CPSE, Material, MaterialMatch, ProcurementRecord, Review
+from app.core.security import hash_password
+from app.models.entities import CPSE, Material, MaterialMatch, ProcurementRecord, Review, User
 from app.services.ingestion_service import add_material
 from app.services.matching_service import candidates
 
 Base.metadata.create_all(engine)
 db=SessionLocal()
 try:
+    # Demo accounts, only meaningful once AUTH_ENABLED=true in .env -- with it
+    # off (the default) these exist but nothing requires logging in as them.
+    demo_users=[("admin","Admin123!","ADMIN","Demo Administrator"),("reviewer","Reviewer123!","REVIEWER","Demo Reviewer")]
+    for username,password,role,full_name in demo_users:
+        if not db.query(User).filter_by(username=username).first():
+            db.add(User(username=username,hashed_password=hash_password(password),role=role,full_name=full_name))
+    db.commit()
     org_specs=[("BHEL","Bharat Heavy Electricals"),("NTPC","NTPC Limited"),("SAIL","Steel Authority of India"),("ONGC","Oil and Natural Gas Corporation"),("GAIL","GAIL India")]
     orgs=[]
     for code,name in org_specs:
@@ -47,4 +55,5 @@ try:
         db.add(match);db.flush();db.add(Review(match_id=match.id,decision="PENDING"));rows+=1
     db.commit()
     print(f"Seeded {len(items)} materials across 5 CPSEs; created {rows} pending match reviews.")
+    print("Demo accounts (only enforced if AUTH_ENABLED=true): admin/Admin123!  reviewer/Reviewer123!")
 finally: db.close()

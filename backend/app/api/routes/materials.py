@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from rapidfuzz import fuzz
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.database import get_db
-from app.models.entities import CPSE, Material, MaterialMapping, NationalMaterial
+from app.core.security import require_role
+from app.models.entities import CPSE, Material, MaterialMapping, NationalMaterial, User
 from app.schemas.material import MaterialInput, MaterialOut
 from app.services.ingestion_service import add_material
 from app.services.normalization_service import normalize
@@ -15,10 +17,14 @@ router = APIRouter(prefix="/materials", tags=["materials"])
 
 
 @router.post("/import")
-async def import_materials(file: UploadFile = File(...), cpse_code: str = Query(...), cpse_name: str | None = Query(None), db: Session = Depends(get_db)):
+async def import_materials(file: UploadFile = File(...), cpse_code: str = Query(...), cpse_name: str | None = Query(None),
+                           db: Session = Depends(get_db), _user: User | None = Depends(require_role("ADMIN", "REVIEWER"))):
     name = file.filename or ""
     if not name.lower().endswith((".csv", ".xlsx", ".xls")): raise HTTPException(415, "Upload a CSV or Excel file")
     content = await file.read()
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(413, f"File exceeds the {settings.max_upload_bytes // (1024*1024)} MB upload limit")
+    if not content: raise HTTPException(422, "Uploaded file is empty")
     digest = hashlib.sha256(content).hexdigest()
     if db.scalar(select(Material.id).where(Material.source_file == f"{name}:{digest}")):
         raise HTTPException(409, "This file has already been imported")
@@ -52,7 +58,8 @@ async def import_materials(file: UploadFile = File(...), cpse_code: str = Query(
 
 
 @router.post("", response_model=MaterialOut, status_code=201)
-def create_material(body: MaterialInput, cpse_code: str = Query(...), cpse_name: str | None = Query(None), db: Session = Depends(get_db)):
+def create_material(body: MaterialInput, cpse_code: str = Query(...), cpse_name: str | None = Query(None),
+                    db: Session = Depends(get_db), _user: User | None = Depends(require_role("ADMIN", "REVIEWER"))):
     cpse = db.scalar(select(CPSE).where(CPSE.code == cpse_code))
     if not cpse:
         cpse = CPSE(code=cpse_code, name=cpse_name or cpse_code); db.add(cpse); db.flush()
