@@ -1,4 +1,5 @@
 import hashlib
+import json
 from io import BytesIO
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -15,12 +16,45 @@ from app.services.normalization_service import normalize
 
 router = APIRouter(prefix="/materials", tags=["materials"])
 
+SUPPORTED_IMPORT_EXTENSIONS = (".csv", ".xlsx", ".xls", ".json", ".xml")
+
+
+def _parse_upload(name: str, content: bytes) -> pd.DataFrame:
+    """
+    Parses CSV, Excel, JSON, or XML into the same flat DataFrame shape the
+    rest of the import pipeline already expects (one row per material, with
+    at least legacy_material_code / original_description columns after
+    aliasing). JSON accepts either a bare array of objects or
+    {"materials": [...]}. XML expects <materials><material>...</material>...
+    </materials> -- one <material> element per row, child element tag names
+    become columns (matching the CSV/JSON column names, including aliases).
+    """
+    lower = name.lower()
+    try:
+        if lower.endswith(".csv"):
+            return pd.read_csv(BytesIO(content))
+        if lower.endswith((".xlsx", ".xls")):
+            return pd.read_excel(BytesIO(content))
+        if lower.endswith(".json"):
+            payload = json.loads(content)
+            if isinstance(payload, dict):
+                payload = payload.get("materials", payload.get("items", payload))
+            if not isinstance(payload, list):
+                raise ValueError("expected a JSON array of material objects, or {\"materials\": [...]}")
+            return pd.DataFrame(payload)
+        if lower.endswith(".xml"):
+            return pd.read_xml(BytesIO(content), xpath=".//material")
+    except Exception as exc:
+        raise HTTPException(422, f"Could not read file: {exc}")
+    raise HTTPException(415, f"Unsupported file type. Supported: {', '.join(SUPPORTED_IMPORT_EXTENSIONS)}")
+
 
 @router.post("/import")
 async def import_materials(file: UploadFile = File(...), cpse_code: str = Query(...), cpse_name: str | None = Query(None),
                            db: Session = Depends(get_db), _user: User | None = Depends(require_role("ADMIN", "REVIEWER"))):
     name = file.filename or ""
-    if not name.lower().endswith((".csv", ".xlsx", ".xls")): raise HTTPException(415, "Upload a CSV or Excel file")
+    if not name.lower().endswith(SUPPORTED_IMPORT_EXTENSIONS):
+        raise HTTPException(415, f"Unsupported file type. Supported: {', '.join(SUPPORTED_IMPORT_EXTENSIONS)}")
     content = await file.read()
     if len(content) > settings.max_upload_bytes:
         raise HTTPException(413, f"File exceeds the {settings.max_upload_bytes // (1024*1024)} MB upload limit")
@@ -28,9 +62,7 @@ async def import_materials(file: UploadFile = File(...), cpse_code: str = Query(
     digest = hashlib.sha256(content).hexdigest()
     if db.scalar(select(Material.id).where(Material.source_file == f"{name}:{digest}")):
         raise HTTPException(409, "This file has already been imported")
-    try:
-        frame = pd.read_csv(BytesIO(content)) if name.lower().endswith(".csv") else pd.read_excel(BytesIO(content))
-    except Exception as exc: raise HTTPException(422, f"Could not read file: {exc}")
+    frame = _parse_upload(name, content)
     frame.columns = [str(c).strip().lower() for c in frame.columns]
     aliases = {"material_code":"legacy_material_code", "code":"legacy_material_code", "description":"original_description"}
     frame = frame.rename(columns=aliases)

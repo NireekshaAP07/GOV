@@ -11,9 +11,21 @@ Design notes (read before enabling in a shared/hosted environment):
   viewed without a login. Tighten that further before a public deployment.
 - Passwords are hashed with bcrypt directly (not passlib, which has a known
   compatibility break with bcrypt>=4.1).
-- Tokens are short-lived JWTs (HS256). There is no refresh-token flow or
-  password reset yet — see backend/API.md "Known auth limitations".
+- Access tokens are short-lived JWTs (HS256, default 8h). Refresh tokens are
+  opaque random strings, stored only as a SHA-256 hash, rotated on every use.
+- Password reset is self-service (POST /auth/forgot-password /
+  /auth/reset-password) but there is no email service in this MVP -- the
+  reset token is returned directly in the API response rather than emailed.
+  Fine for a local/demo deployment; replace with real email delivery before
+  a public one. See API.md "Known auth limitations".
+- Login attempts are rate-limited per-username, in-memory. This is NOT
+  multi-process safe (a multi-worker deployment needs a shared store like
+  Redis instead) -- adequate for a single-process local/demo deployment.
 """
+import hashlib
+import secrets
+import threading
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 import bcrypt
 from fastapi import Depends, HTTPException, status
@@ -23,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.entities import User
+from app.models.entities import PasswordResetToken, RefreshToken, User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
@@ -41,7 +53,10 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_access_token(username: str, role: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    payload = {"sub": username, "role": role, "exp": expire}
+    # jti makes each issued token unique even if two are minted within the
+    # same second (exp only has second precision) -- otherwise two logins in
+    # quick succession would produce byte-identical JWTs.
+    payload = {"sub": username, "role": role, "exp": expire, "jti": secrets.token_hex(8)}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -50,6 +65,86 @@ def _decode_token(token: str) -> dict:
         return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
+
+
+def _hash_opaque_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _aware(dt: datetime) -> datetime:
+    """SQLite drops tzinfo on round-trip, so a value read back from the DB
+    can be naive even though it was stored as UTC-aware. Normalize before
+    comparing against a fresh (aware) datetime.now(timezone.utc)."""
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def issue_refresh_token(db: Session, user: User) -> str:
+    raw = secrets.token_urlsafe(48)
+    db.add(RefreshToken(user_id=user.id, token_hash=_hash_opaque_token(raw),
+                        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)))
+    return raw
+
+
+def redeem_refresh_token(db: Session, raw: str) -> User:
+    """Validates and revokes the given refresh token; caller issues a new one (rotation)."""
+    record = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == _hash_opaque_token(raw)))
+    now = datetime.now(timezone.utc)
+    if not record or record.revoked_at is not None or _aware(record.expires_at) < now:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token is invalid, expired, or already used")
+    record.revoked_at = now
+    user = db.get(User, record.user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+    return user
+
+
+def issue_password_reset_token(db: Session, user: User) -> str:
+    raw = secrets.token_urlsafe(32)
+    db.add(PasswordResetToken(user_id=user.id, token_hash=_hash_opaque_token(raw),
+                              expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.password_reset_expire_minutes)))
+    return raw
+
+
+def redeem_password_reset_token(db: Session, raw: str) -> User:
+    record = db.scalar(select(PasswordResetToken).where(PasswordResetToken.token_hash == _hash_opaque_token(raw)))
+    now = datetime.now(timezone.utc)
+    if not record or record.used_at is not None or _aware(record.expires_at) < now:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reset token is invalid, expired, or already used")
+    record.used_at = now
+    user = db.get(User, record.user_id)
+    if not user:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "User not found")
+    return user
+
+
+class _LoginRateLimiter:
+    """Simple in-memory sliding-window limiter, keyed by username (case-insensitive)."""
+    def __init__(self):
+        self._attempts: dict[str, deque] = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def check(self, username: str):
+        key = username.lower()
+        window = timedelta(minutes=settings.login_lockout_minutes)
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            attempts = self._attempts[key]
+            while attempts and now - attempts[0] > window:
+                attempts.popleft()
+            if len(attempts) >= settings.login_max_attempts:
+                raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                    f"Too many failed login attempts. Try again in {settings.login_lockout_minutes} minutes.")
+
+    def record_failure(self, username: str):
+        with self._lock:
+            self._attempts[username.lower()].append(datetime.now(timezone.utc))
+
+    def record_success(self, username: str):
+        with self._lock:
+            self._attempts.pop(username.lower(), None)
+
+
+login_rate_limiter = _LoginRateLimiter()
 
 
 def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User | None:

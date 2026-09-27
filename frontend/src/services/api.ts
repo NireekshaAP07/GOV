@@ -11,12 +11,19 @@ import type {
   NationalMaterial,
   ReviewItem,
 } from "../types";
+import { emitUnauthorized, tokenStore, trySilentRefresh } from "./auth";
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || "/api").replace(
   /\/$/,
   "",
 );
-class ApiError extends Error {}
+export class ApiError extends Error {
+  status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.status = status;
+  }
+}
 let demoMode = false;
 const listeners = new Set<() => void>();
 let reviewStore = [...demoReviews];
@@ -38,12 +45,26 @@ export const apiMode = {
   },
 };
 
+function withAuthHeader(init?: RequestInit): RequestInit {
+  const token = tokenStore.getAccess();
+  if (!token) return init ?? {};
+  return { ...init, headers: { ...(init?.headers || {}), Authorization: `Bearer ${token}` } };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, init);
+  let response = await fetch(`${baseUrl}${path}`, withAuthHeader(init));
+  if (response.status === 401 && tokenStore.getRefresh()) {
+    // The access token likely just expired -- try one silent refresh and
+    // retry the request once before giving up, so a routine token expiry
+    // mid-session doesn't interrupt what the reviewer is doing.
+    const refreshed = await trySilentRefresh();
+    if (refreshed) response = await fetch(`${baseUrl}${path}`, withAuthHeader(init));
+  }
   if (!response.ok) {
     const error = await response.text();
     setDemoMode(false);
-    throw new ApiError(error || `Request failed (${response.status})`);
+    if (response.status === 401) { tokenStore.clear(); emitUnauthorized(); }
+    throw new ApiError(error || `Request failed (${response.status})`, response.status);
   }
   setDemoMode(false);
   return response.json() as Promise<T>;
