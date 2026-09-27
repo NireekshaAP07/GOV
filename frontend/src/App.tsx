@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout";
+import Login from "./pages/Login";
 
 const Overview = lazy(() => import("./pages/Overview"));
 const Materials = lazy(() => import("./pages/Materials"));
@@ -39,6 +40,7 @@ export default function App() {
       }
     >
       <Routes>
+        <Route path="login" element={<Login />} />
         <Route element={<AppLayout />}>
           <Route index element={<Overview />} />
           <Route path="materials" element={<Materials />} />

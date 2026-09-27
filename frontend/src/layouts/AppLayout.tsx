@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -12,6 +12,8 @@ import {
   FileUp,
   GitCompareArrows,
   Landmark,
+  LogIn,
+  LogOut,
   Menu,
   Search,
   Settings,
@@ -19,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { useApiMode } from "../services/api";
+import { onUnauthorized, useAuth } from "../services/auth";
 import { DemoNotice, SearchField } from "../components/common";
 
 const navGroups = [
@@ -74,9 +77,20 @@ export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const isDemo = useApiMode();
+  const { status, user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  useEffect(() => {
+    // A write request whose session turned out to be invalid (expired
+    // refresh token, revoked user, etc) redirects here to /login rather than
+    // leaving the reviewer looking at a raw error.
+    return onUnauthorized(() => {
+      navigate("/login", { state: { from: location.pathname }, replace: true });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
   const pathBase =
     `/${location.pathname.split("/")[1] || ""}` === "/"
       ? "/"
@@ -86,6 +100,22 @@ export default function AppLayout() {
     : location.pathname.startsWith("/national-materials/")
       ? "National material detail"
       : (pageNames[pathBase] ?? "Overview");
+  const authDisplay =
+    status === "guest"
+      ? null
+      : {
+          name:
+            status === "disabled"
+              ? "Local session"
+              : user?.full_name || user?.username || "Account",
+          role:
+            status === "disabled"
+              ? "Auth disabled"
+              : user?.role === "ADMIN"
+                ? "Administrator"
+                : "Reviewer",
+        };
+  const goToLogin = () => navigate("/login", { state: { from: location.pathname } });
   const SidebarContent = () => (
     <>
       <div className="brand">
@@ -147,23 +177,39 @@ export default function AppLayout() {
           </NavLink>
         </div>
         <div className="profile-card">
-          <div className="avatar">N</div>
-          <div className="profile-copy">
-            <b>Nireeksha</b>
-            <span>Administrator</span>
-          </div>
-          <button
-            className="icon-button profile-more"
-            aria-label="Profile menu"
-          >
-            <ChevronDown size={16} />
-          </button>
+          {status === "guest" ? (
+            <button className="auth-guest-pill" onClick={goToLogin}>
+              <LogIn size={14} />
+              <span>Sign in</span>
+            </button>
+          ) : (
+            <>
+              <div className="avatar">{authDisplay?.name.charAt(0).toUpperCase()}</div>
+              <div className="profile-copy">
+                <b>{authDisplay?.name}</b>
+                <span>{authDisplay?.role}</span>
+              </div>
+              {status === "authenticated" && (
+                <button
+                  className="icon-button profile-more"
+                  aria-label="Sign out"
+                  title="Sign out"
+                  onClick={logout}
+                >
+                  <LogOut size={16} />
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
     </>
   );
   return (
     <div className="app-frame">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <aside className="sidebar">
         <SidebarContent />
       </aside>
@@ -226,17 +272,30 @@ export default function AppLayout() {
                 </div>
               )}
             </div>
-            <div className="top-profile">
-              <div className="avatar avatar-small">N</div>
-              <div>
-                <b>Nireeksha</b>
-                <span>Administrator</span>
+            {status === "guest" ? (
+              <button className="auth-guest-pill" onClick={goToLogin}>
+                <LogIn size={14} />
+                <span>Sign in</span>
+              </button>
+            ) : (
+              <div className="top-profile">
+                <div className="avatar avatar-small">{authDisplay?.name.charAt(0).toUpperCase()}</div>
+                <div>
+                  <b>{authDisplay?.name}</b>
+                  <span>{authDisplay?.role}</span>
+                </div>
+                {status === "authenticated" ? (
+                  <button className="icon-button" aria-label="Sign out" title="Sign out" onClick={logout}>
+                    <LogOut size={14} />
+                  </button>
+                ) : (
+                  <ChevronDown size={14} />
+                )}
               </div>
-              <ChevronDown size={14} />
-            </div>
+            )}
           </div>
         </header>
-        <main className="content-area">
+        <main className="content-area" id="main-content" tabIndex={-1}>
           {isDemo && <DemoNotice />}
           <Outlet />
         </main>
