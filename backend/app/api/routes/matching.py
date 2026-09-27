@@ -3,7 +3,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.config import settings
-from app.models.entities import Material, MaterialMatch, Review
+from app.core.security import require_role
+from app.models.entities import Material, MaterialMatch, Review, User
 from app.schemas.matching import MatchInput
 from app.services.matching_service import candidates, score_pair
 
@@ -21,7 +22,7 @@ def match_pair(body:MatchInput,db:Session=Depends(get_db)):
 
 
 @router.post("/recommend")
-def recommend(db:Session=Depends(get_db)):
+def recommend(db:Session=Depends(get_db), _user: User | None = Depends(require_role("ADMIN", "REVIEWER"))):
     items=[to_dict(m)|{"id":m.id} for m in db.scalars(select(Material)).all()]
     recommendations=[]
     for a,b,result in candidates(items):

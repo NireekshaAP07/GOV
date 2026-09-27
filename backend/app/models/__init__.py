@@ -1,1 +1,1 @@
-from app.models.entities import CPSE, Material, NationalMaterial, MaterialMapping, MaterialMatch, Review, AuditLog, ProcurementRecord
+from app.models.entities import CPSE, Material, NationalMaterial, MaterialMapping, MaterialMatch, Review, AuditLog, ProcurementRecord, User, NationalMaterialVersion

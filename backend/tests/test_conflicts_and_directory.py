@@ -59,6 +59,30 @@ def test_specification_conflict_is_surfaced_not_hidden(client):
     assert any(e["action"] == "REJECT" and e["user"] == "qa" for e in audit)
 
 
+def test_conflict_survives_at_scale_despite_many_higher_scoring_duplicates(client):
+    """
+    Regression test for a second, deeper bug found while verifying the fix
+    above at realistic data volumes: candidates() only kept each material's
+    top-8 highest-scoring pairs. A conflict is deliberately scored low, so
+    once a material has 8+ near-identical true duplicates (common at scale),
+    the conflicting pair got silently crowded out of the top-8 -- even though
+    the route-level fix above was in place. This creates enough SS304
+    duplicates to exceed that limit and confirms the SS316 conflict still
+    surfaces, without also flooding the queue with a combinatorial explosion
+    of repeats of the exact same conflict category.
+    """
+    for i in range(15):
+        client.post("/materials?cpse_code=SCALE_A", json={"legacy_material_code": f"DUP{i}", "original_description": "HEX BOLT M16X50 SS304"})
+    client.post("/materials?cpse_code=SCALE_B", json={"legacy_material_code": "CONFLICT1", "original_description": "HEX BOLT M16X50 SS316"})
+
+    client.post("/materials/recommend")
+    pending = client.get("/reviews/pending").json()
+    conflicts = [r for r in pending if r["match"]["conflicting_features"]]
+    assert len(conflicts) >= 1, "the SS316 conflict was crowded out by higher-scoring SS304 duplicates"
+    # And it shouldn't be flooded with one row per SS304 duplicate either.
+    assert len(conflicts) < 15
+
+
 def test_cpse_directory_lists_created_organizations(client):
     client.post("/materials?cpse_code=DIR_A&cpse_name=Directory Test Org", json={"legacy_material_code": "X", "original_description": "GATE VALVE 150MM"})
     codes = {row["code"] for row in client.get("/cpse").json()}
@@ -72,12 +96,21 @@ def test_materials_list_is_paginated_and_filterable(client):
     assert page["total"] == 3 and len(page["items"]) == 2 and page["total_pages"] == 2
 
 
-def test_national_material_history_flags_it_is_current_state_only(client):
+def test_national_material_history_records_real_version_snapshots(client):
+    """
+    Previously this endpoint could only report current state
+    (full_version_history_available was always False). Now every
+    CREATE/APPROVE/MODIFY writes a NationalMaterialVersion snapshot, so a
+    reviewer can see the actual sequence of changes, not just the latest one.
+    """
     a = client.post("/materials?cpse_code=HIST_A", json={"legacy_material_code": "H1", "original_description": "DEEP GROOVE BALL BEARING 6205"}).json()
     b = client.post("/materials?cpse_code=HIST_B", json={"legacy_material_code": "H2", "original_description": "DEEP GROOVE BALL BEARING 6205"}).json()
     client.post("/materials/recommend")
     review = next(x for x in client.get("/reviews/pending").json() if {x["material_a"]["id"], x["material_b"]["id"]} == {a["id"], b["id"]})
     approved = client.post(f"/reviews/{review['review_id']}/approve", json={"reviewer": "qa"})
     history = client.get(f"/national-materials/{approved.json()['national_code']}/history").json()
-    assert history["full_version_history_available"] is False
+    assert history["full_version_history_available"] is True
     assert len(history["mappings"]) == 2
+    assert len(history["version_history"]) == 1
+    assert history["version_history"][0]["change_reason"] == "CREATE"
+    assert history["version_history"][0]["changed_by"] == "qa"
