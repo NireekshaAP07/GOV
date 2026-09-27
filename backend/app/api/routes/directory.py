@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.entities import CPSE, AuditLog, MaterialMapping, NationalMaterial
+from app.models.entities import CPSE, AuditLog, MaterialMapping, NationalMaterial, NationalMaterialVersion
 
 router = APIRouter(tags=["directory"])
 
@@ -31,19 +31,18 @@ def list_audit(entity_type: str | None = None, entity_id: str | None = None,
 @router.get("/national-materials/{national_code}/history")
 def national_material_history(national_code: str, db: Session = Depends(get_db)):
     """
-    Version and approval history for a national material.
-
-    NOTE: today only the *current* version/description is stored on NationalMaterial
-    and MaterialMapping (each with a version counter). This endpoint surfaces that
-    current state plus the audit trail of decisions that produced it. It is not a
-    full snapshot-per-version history yet — that needs a dedicated history table
-    (e.g. NationalMaterialVersion) capturing standard_description/version/changed_by/
-    changed_at on every MODIFY, added via a new Alembic migration. Flagged here rather
-    than silently faked so the frontend doesn't present this as more than it is.
+    Real, append-only version history for a national material: every
+    CREATE/APPROVE/MODIFY decision that touched it, in order, each with who
+    made the change and when (NationalMaterialVersion, written from
+    reviews.py). A national material approved before this table existed will
+    have no snapshots; in that case we fall back to reporting its current
+    state only, and say so explicitly via `full_version_history_available`.
     """
     nm = db.scalar(select(NationalMaterial).where(NationalMaterial.national_code == national_code))
     if not nm: raise HTTPException(404, "National material not found")
     mappings = db.scalars(select(MaterialMapping).where(MaterialMapping.national_material_id == nm.id)).all()
+    versions = db.scalars(select(NationalMaterialVersion).where(NationalMaterialVersion.national_material_id == nm.id)
+                          .order_by(NationalMaterialVersion.created_at)).all()
     return {
         "national_code": nm.national_code,
         "current_version": nm.version,
@@ -52,5 +51,7 @@ def national_material_history(national_code: str, db: Session = Depends(get_db))
         "updated_at": nm.updated_at,
         "mappings": [{"cpse_id": m.cpse_id, "legacy_material_code": m.legacy_material_code, "version": m.version,
                       "mapping_status": m.mapping_status, "approved_by": m.approved_by, "approved_at": m.approved_at} for m in mappings],
-        "full_version_history_available": False,
+        "version_history": [{"version": v.version, "standard_description": v.standard_description, "approval_status": v.approval_status,
+                             "changed_by": v.changed_by, "change_reason": v.change_reason, "comments": v.comments, "created_at": v.created_at} for v in versions],
+        "full_version_history_available": len(versions) > 0,
     }
