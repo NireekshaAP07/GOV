@@ -34,7 +34,10 @@ try:
     items=[{"id":m.id,"fingerprint":m.fingerprint,"normalized_description":m.normalized_description} for m in db.query(Material).all()]
     rows=0
     for a,b,result in candidates(items):
-        if result["final_score"] < .8: continue
+        # Keep strong/near-duplicate candidates for review, and always keep
+        # pairs the matcher flagged as conflicting (e.g. SS304 vs SS316) so a
+        # spec conflict is surfaced to a reviewer instead of silently dropped.
+        if result["final_score"] < .8 and not result["conflicting_features"]: continue
         left,right=sorted((a["id"],b["id"]))
         if db.query(MaterialMatch).filter_by(material_a_id=left,material_b_id=right).first(): continue
         match=MaterialMatch(material_a_id=left,material_b_id=right,semantic_score=result["semantic_score"],attribute_score=result["attribute_score"],
