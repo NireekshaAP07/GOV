@@ -155,3 +155,37 @@ class NationalMaterialVersion(Base):
     change_reason: Mapped[str | None] = mapped_column(String(30))  # CREATE | APPROVE | MODIFY
     comments: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+
+class RefreshToken(Base):
+    """
+    Opaque refresh token (only its SHA-256 hash is stored, never the raw
+    value) letting a client obtain a new short-lived access token without
+    re-entering a password. Rotated on every use: POST /auth/refresh revokes
+    the token it was given and issues a new one, so a stolen-and-reused old
+    token is detectable.
+    """
+    __tablename__ = "refresh_token"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+
+class PasswordResetToken(Base):
+    """
+    Single-use, short-lived token for self-service password reset. Only its
+    SHA-256 hash is stored. There is no email service in this MVP, so
+    POST /auth/forgot-password returns the raw token directly in the API
+    response for local/demo use -- in a real deployment this would instead be
+    emailed to the user and never appear in the response. See API.md.
+    """
+    __tablename__ = "password_reset_token"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)

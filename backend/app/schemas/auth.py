@@ -22,3 +22,24 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     role: str
+    refresh_token: str | None = None
+
+
+class RefreshInput(BaseModel):
+    refresh_token: str
+
+
+class ForgotPasswordInput(BaseModel):
+    username: str
+
+
+class ForgotPasswordOut(BaseModel):
+    # No email service in this MVP -- see API.md "Known auth limitations".
+    # In a real deployment this token would be emailed, never returned here.
+    reset_token: str | None = None
+    detail: str
+
+
+class ResetPasswordInput(BaseModel):
+    reset_token: str
+    new_password: str = Field(min_length=8, max_length=72)

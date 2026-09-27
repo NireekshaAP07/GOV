@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-.env-before-enabling-auth"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
+    refresh_token_expire_days: int = 14
+    password_reset_expire_minutes: int = 30
+    login_max_attempts: int = 5
+    login_lockout_minutes: int = 15
     cors_allow_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     max_upload_bytes: int = 10 * 1024 * 1024  # 10 MB
 
