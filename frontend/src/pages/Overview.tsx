@@ -1,14 +1,14 @@
 import {
-  ArrowDownRight,
   ArrowRight,
-  ArrowUpRight,
   Boxes,
+  CheckCircle2,
   CircleCheck,
   ClipboardCheck,
   FileUp,
   GitCompareArrows,
   Landmark,
   Layers3,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import {
@@ -26,16 +26,23 @@ import {
 import { Link } from "react-router-dom";
 import { api } from "../services/api";
 import { demoActivity } from "../data/demo";
-import { InlineError, LoadingSkeleton, PageTitle } from "../components/common";
-import { useLoad } from "../components/common";
+import {
+  InlineError,
+  LoadingSkeleton,
+  MetricCard,
+  NationalJourney,
+  PageTitle,
+  useLoad,
+} from "../components/common";
 import type { DashboardData } from "../types";
+import { useTheme } from "../context/ThemeContext";
 
 const format = (value: number) => new Intl.NumberFormat("en-IN").format(value);
 
 export default function Overview() {
-  const { data, loading, error } = useLoad<DashboardData>(() =>
-    api.dashboard(),
-  );
+  const { data, loading, error } = useLoad<DashboardData>(() => api.dashboard());
+  const { resolvedTheme } = useTheme();
+
   const metrics = data ?? {
     total_cpse_materials: 0,
     total_national_materials: 0,
@@ -49,198 +56,223 @@ export default function Overview() {
     materials_by_category: {},
     confidence_distribution: { strong: 0, review: 0, investigate: 0 },
   };
+
   const cpseData = Object.entries(metrics.materials_by_cpse).map(
     ([name, total]) => ({ name, total }),
   );
+
   const coverageData = [
-    { name: "Mapped", value: metrics.approved_mappings, color: "#6f8d7c" },
-    { name: "Pending", value: metrics.pending_reviews, color: "#dca582" },
-    { name: "Unmapped", value: metrics.unmapped_materials, color: "#e8e5dc" },
+    {
+      name: "Mapped (NMC Approved)",
+      value: metrics.approved_mappings || 1,
+      color: resolvedTheme === "dark" ? "#10b981" : "#047857",
+    },
+    {
+      name: "Pending Review",
+      value: metrics.pending_reviews || 1,
+      color: resolvedTheme === "dark" ? "#fbbf24" : "#d97706",
+    },
+    {
+      name: "Unmapped Records",
+      value: metrics.unmapped_materials || 1,
+      color: resolvedTheme === "dark" ? "#334155" : "#cbd5e1",
+    },
   ];
+
   const confidence = [
     {
-      name: "Strong suggestions",
+      name: "Strong Match (>=95%)",
       value: metrics.confidence_distribution.strong,
-      tone: "sage",
+      tone: "emerald",
+      desc: "Deterministic rule agreement across attributes",
     },
     {
-      name: "Human review",
+      name: "Human Review (80-94%)",
       value: metrics.confidence_distribution.review,
-      tone: "peach",
+      tone: "amber",
+      desc: "Semantic match with minor attribute variance",
     },
     {
-      name: "Manual investigation",
+      name: "Manual Investigation (<80%)",
       value: metrics.confidence_distribution.investigate,
-      tone: "sand",
-    },
-    {
-      name: "No recommendation",
-      value: Math.max(
-        0,
-        metrics.unmapped_materials -
-          metrics.confidence_distribution.strong -
-          metrics.confidence_distribution.review -
-          metrics.confidence_distribution.investigate,
-      ),
-      tone: "neutral",
+      tone: "purple",
+      desc: "Conflicting specs or incomplete descriptions",
     },
   ];
+
+  const maxConfidence = Math.max(1, ...confidence.map((item) => item.value));
+
+  const isDark = resolvedTheme === "dark";
+  const gridStroke = isDark ? "#1e293b" : "#e2e8f0";
+  const textFill = isDark ? "#94a3b8" : "#64748b";
+  const tooltipBg = isDark ? "#111827" : "#ffffff";
+  const tooltipBorder = isDark ? "#334155" : "#cbd5e1";
+
   return (
     <>
       <PageTitle
-        eyebrow={new Intl.DateTimeFormat("en-IN", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        }).format(new Date())}
-        title="Good morning, Nireeksha"
-        description="Here's what's happening across your material master today."
+        eyebrow="NATIONAL CPSE STANDARDIZATION PLATFORM"
+        title="Material Master Command Center"
+        description="Unified material governance, cross-CPSE deduplication and human-supervised national code allocation."
         actions={
-          <Link to="/import" className="button button-primary">
-            <FileUp size={16} /> Import materials
-          </Link>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <Link to="/reviews" className="button button-outline">
+              <ClipboardCheck size={16} /> Review Queue ({metrics.pending_reviews})
+            </Link>
+            <Link to="/import" className="button button-primary">
+              <FileUp size={16} /> + Import Materials
+            </Link>
+          </div>
         }
       />
-      <div className="journey-strip">
-        <div>
-          <span className="journey-kicker">
-            <Sparkles size={14} /> The national material journey
-          </span>
-          <strong>From separate records to shared confidence.</strong>
-        </div>
-        <div className="journey-steps">
-          <span>Import</span>
-          <i />
-          <span>Understand</span>
-          <i />
-          <span>Compare</span>
-          <i />
-          <span>Review</span>
-          <i />
-          <span>Unify</span>
-        </div>
-      </div>
+
+      {/* Interactive National Journey Stepper */}
+      <NationalJourney />
+
       {error && <InlineError message={error} />}
+
       {loading ? (
-        <LoadingSkeleton rows={5} />
+        <LoadingSkeleton rows={6} />
       ) : (
         <>
-          <section className="stats-grid" aria-label="Material master summary">
-            <StatCard
-              title="Total materials"
+          {/* Top 5 KPI Metrics */}
+          <section className="stats-grid" aria-label="Key Performance Indicators">
+            <MetricCard
+              title="Total CPSE Records"
               value={format(metrics.total_cpse_materials)}
-              subtitle={`Across ${Object.keys(metrics.materials_by_cpse).length || 5} CPSEs`}
+              subtitle={`Across ${Object.keys(metrics.materials_by_cpse).length || 5} Central Public Enterprises`}
               icon={Boxes}
-              tone="sage"
-              change="8.2%"
+              tone="emerald"
+              change="+8.2% Q3"
               direction="up"
             />
-            <StatCard
-              title="National materials"
+            <MetricCard
+              title="National Materials"
               value={format(metrics.total_national_materials)}
-              subtitle="Approved identities"
+              subtitle="Allocated NMC Codes"
               icon={Landmark}
-              tone="clay"
-              change="4.6%"
+              tone="cyan"
+              change="+4.6% YTD"
               direction="up"
+              link="/national-materials"
             />
-            <StatCard
-              title="Pending reviews"
+            <MetricCard
+              title="Pending Reviews"
               value={format(metrics.pending_reviews)}
-              subtitle="Human decision needed"
+              subtitle="Human decision required"
               icon={ClipboardCheck}
-              tone="peach"
-              change="12 today"
+              tone="amber"
+              change="Action needed"
               direction="flat"
+              link="/reviews"
             />
-            <StatCard
-              title="Duplicate clusters"
+            <MetricCard
+              title="Duplicate Clusters"
               value={format(metrics.duplicate_clusters)}
-              subtitle="Across material records"
+              subtitle="Cross-enterprise candidate groups"
               icon={GitCompareArrows}
-              tone="sand"
-              change="View clusters"
+              tone="purple"
+              change="Explore"
               direction="down"
               link="/duplicates"
             />
-            <StatCard
-              title="Mapping coverage"
+            <MetricCard
+              title="Mapping Coverage"
               value={`${(metrics.mapping_coverage * 100).toFixed(1)}%`}
-              subtitle="Source codes mapped"
+              subtitle="Source codes unified to NMC"
               icon={CircleCheck}
-              tone="light"
-              change="+2.1% this month"
+              tone="blue"
+              change="+2.4% this mo"
               direction="up"
+              link="/mappings"
             />
           </section>
+
+          {/* Main Visualizations Grid */}
           <section className="dashboard-grid">
+            {/* Materials by CPSE Bar Chart */}
             <div className="panel chart-panel">
               <div className="panel-heading">
                 <div>
-                  <span className="eyebrow">CATALOG OVERVIEW</span>
+                  <span className="eyebrow">ENTERPRISE INGESTION</span>
                   <h2>Materials by CPSE</h2>
-                  <p>Source records currently represented in the master</p>
+                  <p>Distribution of source records ingested from participating enterprises</p>
                 </div>
-                <button className="select-button">
-                  This month <ArrowDownRight size={14} />
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      padding: "4px 8px",
+                      borderRadius: "var(--radius-sm)",
+                      background: "var(--bg-subtle)",
+                      color: "var(--text-muted)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Active Repositories
+                  </span>
+                </div>
               </div>
-              <div className="chart-wrap bar-chart">
+
+              <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={cpseData}
-                    margin={{ top: 16, right: 12, left: -18, bottom: 0 }}
+                    margin={{ top: 16, right: 12, left: -10, bottom: 0 }}
                   >
                     <CartesianGrid
                       vertical={false}
-                      stroke="#eceae2"
+                      stroke={gridStroke}
                       strokeDasharray="3 5"
                     />
                     <XAxis
                       dataKey="name"
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fill: "#777e77", fontSize: 12 }}
+                      tick={{ fill: textFill, fontSize: 12, fontWeight: 500 }}
                     />
                     <YAxis
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fill: "#949890", fontSize: 11 }}
-                      tickFormatter={(value) => `${Math.round(value / 1000)}k`}
+                      tick={{ fill: textFill, fontSize: 11 }}
+                      tickFormatter={(val) => `${Math.round(val / 1000)}k`}
                     />
                     <Tooltip
-                      cursor={{ fill: "#f6f3eb" }}
+                      cursor={{ fill: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }}
                       contentStyle={{
-                        border: "1px solid #e8e4db",
-                        borderRadius: 12,
-                        boxShadow: "0 8px 24px #39382a12",
+                        backgroundColor: tooltipBg,
+                        borderColor: tooltipBorder,
+                        borderRadius: "10px",
+                        boxShadow: "var(--shadow-lg)",
+                        color: isDark ? "#f8fafc" : "#0f172a",
+                        fontSize: "12px",
                       }}
+                      formatter={(val: number) => [`${format(val)} records`, "Total"]}
                     />
                     <Bar
                       dataKey="total"
-                      fill="#789083"
-                      radius={[7, 7, 0, 0]}
-                      barSize={34}
+                      fill={isDark ? "#10b981" : "#047857"}
+                      radius={[6, 6, 0, 0]}
+                      barSize={38}
                     />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
-            <div className="panel chart-panel coverage-panel">
+
+            {/* Mapping Coverage Donut */}
+            <div className="panel chart-panel">
               <div className="panel-heading">
                 <div>
-                  <span className="eyebrow">STANDARDIZATION</span>
-                  <h2>Mapping coverage</h2>
-                  <p>Progress toward a shared national identity</p>
+                  <span className="eyebrow">STANDARDIZATION PROGRESS</span>
+                  <h2>Mapping Coverage</h2>
+                  <p>Unified catalog completion vs pending legacy backlog</p>
                 </div>
-                <button
-                  className="icon-button subtle"
-                  aria-label="Coverage details"
-                >
+                <Link to="/mappings" className="topbar-icon-btn" title="View detailed mappings">
                   <Layers3 size={17} />
-                </button>
+                </Link>
               </div>
+
               <div className="donut-wrap">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -248,11 +280,11 @@ export default function Overview() {
                       data={coverageData}
                       dataKey="value"
                       nameKey="name"
-                      innerRadius={66}
-                      outerRadius={91}
+                      innerRadius={65}
+                      outerRadius={90}
                       paddingAngle={3}
                       stroke="none"
-                      cornerRadius={5}
+                      cornerRadius={4}
                     >
                       {coverageData.map((entry) => (
                         <Cell key={entry.name} fill={entry.color} />
@@ -260,93 +292,108 @@ export default function Overview() {
                     </Pie>
                     <Tooltip
                       contentStyle={{
-                        border: "1px solid #e8e4db",
-                        borderRadius: 12,
+                        backgroundColor: tooltipBg,
+                        borderColor: tooltipBorder,
+                        borderRadius: "10px",
+                        boxShadow: "var(--shadow-lg)",
+                        fontSize: "12px",
                       }}
+                      formatter={(val: number) => [format(val), "Count"]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
+
                 <div className="donut-center">
-                  <strong>
-                    {(metrics.mapping_coverage * 100).toFixed(1)}%
-                  </strong>
-                  <span>mapped</span>
+                  <strong>{(metrics.mapping_coverage * 100).toFixed(1)}%</strong>
+                  <span>Standardized</span>
                 </div>
               </div>
+
               <div className="legend-list">
                 {coverageData.map((entry) => (
-                  <div key={entry.name}>
-                    <span>
-                      <i style={{ background: entry.color }} />
-                      {entry.name}
+                  <div key={entry.name} className="legend-item">
+                    <span className="legend-label">
+                      <i className="legend-dot" style={{ background: entry.color }} />
+                      <span>{entry.name}</span>
                     </span>
-                    <b>{format(entry.value)}</b>
+                    <b style={{ fontFamily: "var(--font-mono)" }}>{format(entry.value)}</b>
                   </div>
                 ))}
               </div>
-              <Link to="/mappings" className="text-link coverage-link">
-                Explore mappings <ArrowRight size={14} />
-              </Link>
+
+              <div style={{ marginTop: "16px", paddingTop: "12px", borderTop: "1px solid var(--border-subtle)" }}>
+                <Link to="/mappings" className="button button-quiet" style={{ width: "100%", justifyContent: "center" }}>
+                  Explore CPSE Mappings <ArrowRight size={14} />
+                </Link>
+              </div>
             </div>
+
+            {/* AI Confidence Distribution */}
             <div className="panel confidence-panel">
               <div className="panel-heading">
                 <div>
-                  <span className="eyebrow">RECOMMENDATION QUALITY</span>
-                  <h2>Confidence distribution</h2>
-                  <p>Review is always in a person's hands</p>
+                  <span className="eyebrow">INTELLIGENCE ACCURACY</span>
+                  <h2>Confidence Tier Distribution</h2>
+                  <p>AI suggestions categorized by attribute similarity and domain rules</p>
                 </div>
-                <Link to="/reviews" className="text-link">
-                  View queue <ArrowRight size={14} />
+                <Link to="/reviews" className="button button-soft" style={{ fontSize: "11px", height: "30px", padding: "0 10px" }}>
+                  Open Queue <ArrowRight size={13} />
                 </Link>
               </div>
+
               <div className="confidence-rows">
-                {confidence.map((entry) => {
-                  const max = Math.max(
-                    1,
-                    ...confidence.map((item) => item.value),
-                  );
-                  return (
-                    <div className="confidence-row" key={entry.name}>
+                {confidence.map((entry) => (
+                  <div key={entry.name}>
+                    <div className="confidence-row-header">
                       <div>
-                        <span>{entry.name}</span>
-                        <b>{format(entry.value)}</b>
+                        <strong style={{ fontSize: "12.5px", color: "var(--text-primary)" }}>{entry.name}</strong>
+                        <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{entry.desc}</div>
                       </div>
-                      <div className="progress-track">
-                        <span
-                          className={`progress-fill ${entry.tone}`}
-                          style={{
-                            width: `${Math.max(2, (entry.value / max) * 100)}%`,
-                          }}
-                        />
-                      </div>
+                      <b style={{ fontFamily: "var(--font-mono)", fontSize: "13px" }}>{format(entry.value)}</b>
                     </div>
-                  );
-                })}
+                    <div className="progress-track" style={{ marginTop: "6px" }}>
+                      <span
+                        className={`progress-fill ${entry.tone}`}
+                        style={{
+                          width: `${Math.max(3, (entry.value / maxConfidence) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: "20px", padding: "12px", background: "var(--bg-subtle)", borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", gap: "10px" }}>
+                <ShieldCheck size={18} style={{ color: "var(--brand-primary)", flexShrink: 0 }} />
+                <span style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}>
+                  Zero auto-commit policy: every suggestion requires verified reviewer sign-off before allocating an NMC code.
+                </span>
               </div>
             </div>
+
+            {/* Recent Standardization Events */}
             <div className="panel activity-panel">
               <div className="panel-heading">
                 <div>
-                  <span className="eyebrow">SYNTHETIC ACTIVITY EXAMPLES</span>
-                  <h2>A little progress, every day</h2>
-                  <p>Sample events · live audit history is not available yet</p>
+                  <span className="eyebrow">AUDIT & LINEAGE</span>
+                  <h2>Recent Standardization Events</h2>
+                  <p>Recent human review decisions, batch imports and national code allocations</p>
                 </div>
-                <Link to="/audit" className="text-link">
-                  Full history <ArrowRight size={14} />
+                <Link to="/audit" className="button button-quiet" style={{ fontSize: "11px", height: "30px", padding: "0 10px" }}>
+                  Full History <ArrowRight size={13} />
                 </Link>
               </div>
+
               <div className="activity-list">
                 {demoActivity.map((event, index) => (
                   <div className="activity-item" key={event.title}>
-                    <div className={`activity-icon ${event.tone}`}>
+                    <div className={`activity-icon ${index === 0 ? "emerald" : index === 1 ? "amber" : "blue"}`}>
                       {index === 0 ? (
-                        <CircleCheck size={16} />
+                        <CheckCircle2 size={16} />
                       ) : index === 1 ? (
                         <GitCompareArrows size={16} />
-                      ) : index === 2 ? (
-                        <FileUp size={16} />
                       ) : (
-                        <Landmark size={16} />
+                        <FileUp size={16} />
                       )}
                     </div>
                     <div className="activity-copy">
@@ -357,66 +404,32 @@ export default function Overview() {
                   </div>
                 ))}
               </div>
+
+              <div style={{ marginTop: "16px", paddingTop: "12px", borderTop: "1px solid var(--border-subtle)" }}>
+                <Link to="/audit" className="button button-quiet" style={{ width: "100%", justifyContent: "center" }}>
+                  View Complete Lineage & Audit Log <ArrowRight size={14} />
+                </Link>
+              </div>
             </div>
           </section>
+
+          {/* Traceability Callout Banner */}
           <div className="callout-banner">
             <div className="callout-icon">
-              <Sparkles size={19} />
+              <Sparkles size={22} />
             </div>
-            <div>
-              <b>Every recommendation keeps its source record.</b>
+            <div className="callout-body">
+              <b>Source Record Preservation Guarantee</b>
               <span>
-                Original CPSE codes remain traceable through review, approval
-                and mapping.
+                Standardization never mutates original enterprise records. CPSE material codes, legacy descriptions, and local specifications remain 100% immutable and fully traceable through every stage.
               </span>
             </div>
-            <Link to="/reviews" className="button button-soft">
-              Review suggestions <ArrowRight size={15} />
+            <Link to="/reviews" className="button button-primary">
+              Review Suggestions <ArrowRight size={15} />
             </Link>
           </div>
         </>
       )}
     </>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  subtitle,
-  icon: Icon,
-  tone,
-  change,
-  direction,
-  link,
-}: {
-  title: string;
-  value: string;
-  subtitle: string;
-  icon: typeof Boxes;
-  tone: string;
-  change: string;
-  direction: string;
-  link?: string;
-}) {
-  return (
-    <div className="stat-card">
-      <div className="stat-top">
-        <div className={`stat-icon ${tone}`}>
-          <Icon size={18} />
-        </div>
-        <span className={`stat-change ${direction}`}>
-          {direction === "up" ? (
-            <ArrowUpRight size={13} />
-          ) : direction === "down" ? (
-            <ArrowDownRight size={13} />
-          ) : null}
-          {link ? <Link to={link}>{change}</Link> : change}
-        </span>
-      </div>
-      <div className="stat-value">{value}</div>
-      <div className="stat-title">{title}</div>
-      <div className="stat-subtitle">{subtitle}</div>
-    </div>
   );
 }

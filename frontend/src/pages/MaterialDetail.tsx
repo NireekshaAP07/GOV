@@ -3,14 +3,18 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpenCheck,
+  Cpu,
   Fingerprint,
   History,
+  Landmark,
   Link2,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../services/api";
 import {
+  ConfidenceBadge,
   EmptyState,
   LoadingSkeleton,
   PageTitle,
@@ -23,6 +27,7 @@ export default function MaterialDetail() {
   const { id } = useParams();
   const [item, setItem] = useState<Material | null>(null);
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     api
       .getMaterial(Number(id))
@@ -30,197 +35,255 @@ export default function MaterialDetail() {
       .catch(() => setItem(null))
       .finally(() => setLoading(false));
   }, [id]);
-  if (loading) return <LoadingSkeleton rows={5} />;
-  if (!item)
+
+  if (loading) return <LoadingSkeleton rows={6} />;
+
+  if (!item) {
     return (
       <EmptyState
         title="Material record unavailable"
-        body="This source record may have been removed or is outside the current search results."
+        body="This source record may have been removed or is outside the current index."
         action={
           <Link className="button button-soft" to="/materials">
-            <ArrowLeft size={15} /> Back to materials
+            <ArrowLeft size={15} /> Back to Material Explorer
           </Link>
         }
       />
     );
+  }
+
   const attrs = Object.entries(item.fingerprint ?? {}).filter(
     ([key, value]) => !["unit"].includes(key) && value != null,
   );
+
   return (
     <>
       <PageTitle
-        eyebrow="MATERIAL EXPLORER / SOURCE RECORD"
+        eyebrow={`SOURCE RECORD · ${item.cpse_code ?? `CPSE ${item.cpse_id}`}`}
         title={item.normalized_description || item.original_description}
         description={
-          <>
-            {item.legacy_material_code} <span className="separator-dot">·</span>{" "}
-            {item.cpse_code ?? `CPSE ${item.cpse_id}`}
-          </>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontFamily: "var(--font-mono)" }}>
+            <span>Code: <b>{item.legacy_material_code}</b></span>
+            <span>·</span>
+            <span>Organization: <b>{item.cpse_name ?? item.cpse_code}</b></span>
+          </span>
         }
         actions={
-          <Link to="/materials" className="button button-soft">
-            <ArrowLeft size={15} /> Back to explorer
-          </Link>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <Link to="/materials" className="button button-outline">
+              <ArrowLeft size={15} /> Back to Explorer
+            </Link>
+            {item.national_material && (
+              <Link to={`/national-materials`} className="button button-primary">
+                <Landmark size={15} /> View National Code ({item.national_material.national_code})
+              </Link>
+            )}
+          </div>
         }
       />
+
       <div className="detail-layout">
+        {/* Main Column */}
         <div className="detail-main">
+          {/* Preserved Original Record */}
           <section className="panel detail-panel">
             <div className="section-heading">
-              <div className="section-icon clay">
-                <BookOpenCheck size={18} />
+              <div className="section-icon amber">
+                <BookOpenCheck size={20} />
               </div>
-              <div>
-                <h2>Original record</h2>
-                <p>Source information is preserved as provided by the CPSE.</p>
+              <div style={{ flex: 1 }}>
+                <span className="eyebrow" style={{ color: "var(--accent-amber)" }}>
+                  ORIGINAL ENTERPRISE METADATA
+                </span>
+                <h2>Preserved Source Record</h2>
+                <p>Immutable raw material record exactly as stored inside the CPSE catalog.</p>
               </div>
-              <StatusBadge status={item.mapping?.status ?? "UNMAPPED"} />
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <StatusBadge status={item.mapping?.status ?? (item.national_material ? "APPROVED" : "UNMAPPED")} />
+                <ConfidenceBadge value={item.mapping?.confidence ?? item.similarity} showLabel />
+              </div>
             </div>
+
             <div className="record-grid">
               <Info
-                label="CPSE"
-                value={
-                  item.cpse_name ?? item.cpse_code ?? `CPSE ${item.cpse_id}`
-                }
+                label="Enterprise / CPSE"
+                value={item.cpse_name ?? item.cpse_code ?? `CPSE ${item.cpse_id}`}
               />
               <Info
-                label="Legacy material code"
+                label="Legacy Material Code"
                 value={item.legacy_material_code}
                 mono
               />
               <Info
-                label="Original description"
+                label="Original Description (Raw)"
                 value={item.original_description}
                 wide
               />
-              <Info label="Source unit" value={item.unit ?? "EA"} />
+              <Info label="Source Unit of Measure" value={item.unit ?? "EA"} mono />
+              <Info
+                label="Normalized Representation"
+                value={item.normalized_description}
+                wide
+              />
             </div>
           </section>
+
+          {/* Standardized Extracted Specifications */}
           <section className="panel detail-panel">
             <div className="section-heading">
-              <div className="section-icon sage">
-                <Fingerprint size={18} />
+              <div className="section-icon emerald">
+                <Cpu size={20} />
               </div>
               <div>
-                <h2>Standardized representation</h2>
-                <p>
-                  Attributes extracted from the description and source fields.
-                </p>
+                <span className="eyebrow">STANDARDIZED SPECIFICATIONS</span>
+                <h2>Technical Specification Matrix</h2>
+                <p>Parsed and normalized technical dimensions derived from the material description.</p>
               </div>
             </div>
+
             <div className="attribute-grid">
-              {[
-                [
-                  "Category",
-                  humanize(
-                    item.category ?? String(item.fingerprint.category ?? ""),
-                  ),
-                ],
-                [
-                  "Material",
-                  humanize(
-                    item.material ?? String(item.fingerprint.material ?? ""),
-                  ),
-                ],
-                ["Grade", item.grade ?? String(item.fingerprint.grade ?? "—")],
-                ["Diameter", String(item.fingerprint.diameter ?? "—")],
-                ["Length", String(item.fingerprint.length ?? "—")],
-                [
-                  "Head type",
-                  humanize(String(item.fingerprint.head_type ?? "")),
-                ],
-                ["Unit", item.unit ?? String(item.fingerprint.unit ?? "EA")],
-              ].map(([label, value]) => (
-                <Info label={label} value={value} />
-              ))}
+              <Info label="Category" value={humanize(item.category ?? String(item.fingerprint?.category ?? ""))} />
+              <Info label="Material" value={humanize(item.material ?? String(item.fingerprint?.material ?? ""))} />
+              <Info label="Material Grade" value={item.grade ?? String(item.fingerprint?.grade ?? "—")} mono />
+              <Info label="Diameter / Thread" value={String(item.fingerprint?.diameter ?? "—")} mono />
+              <Info label="Length / Dimensions" value={String(item.fingerprint?.length ?? "—")} mono />
+              <Info label="Head Type / Style" value={humanize(String(item.fingerprint?.head_type ?? "—"))} />
+              <Info label="Unit of Measurement" value={item.unit ?? String(item.fingerprint?.unit ?? "EA")} mono />
             </div>
           </section>
+
+          {/* Fingerprint Chips Grid */}
           <section className="panel detail-panel">
             <div className="section-heading">
-              <div className="section-icon sand">
-                <Fingerprint size={18} />
+              <div className="section-icon blue">
+                <Fingerprint size={20} />
               </div>
               <div>
-                <h2>Material fingerprint</h2>
-                <p>A readable view of the technical facts used in matching.</p>
+                <span className="eyebrow">MATCHING TOKENS</span>
+                <h2>Material Fingerprint</h2>
+                <p>Deterministic signature used for cross-enterprise duplicate detection and clustering.</p>
               </div>
             </div>
+
             <div className="fingerprint-chips">
-              {attrs.map(([key, value]) => (
-                <span className="fingerprint-chip" key={key}>
-                  <small>{humanize(key)}</small>
-                  <b>{String(value)}</b>
+              {attrs.length === 0 ? (
+                <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>
+                  No extra attributes extracted for this material.
                 </span>
-              ))}
+              ) : (
+                attrs.map(([key, value]) => (
+                  <div className="fingerprint-chip" key={key}>
+                    <small>{humanize(key)}</small>
+                    <b>{String(value)}</b>
+                  </div>
+                ))
+              )}
             </div>
           </section>
         </div>
+
+        {/* Aside Sidebar */}
         <aside className="detail-aside">
+          {/* Record Lineage Card */}
           <div className="panel lineage-panel">
-            <div className="eyebrow">RECORD LINEAGE</div>
-            <h3>From source to shared identity</h3>
+            <span className="eyebrow">GOVERNANCE & AUDIT</span>
+            <h3 style={{ fontSize: "15px", margin: "4px 0 12px" }}>Lifecycle Lineage</h3>
+            <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "16px" }}>
+              Complete traceability path from local CPSE database to national master registry.
+            </p>
+
             <div className="lineage-step">
               <span className="lineage-dot source">
-                <BookOpenCheck size={14} />
+                <BookOpenCheck size={16} />
               </span>
               <div>
-                <b>Original record</b>
-                <span>{item.legacy_material_code}</span>
+                <b>1. Source Ingestion</b>
+                <span>{item.cpse_code} · {item.legacy_material_code}</span>
               </div>
             </div>
+
             <div className="lineage-step">
               <span className="lineage-dot ai">
-                <Fingerprint size={14} />
+                <Sparkles size={16} />
               </span>
               <div>
-                <b>AI analysis</b>
-                <span>Attributes and description compared</span>
+                <b>2. AI Normalization</b>
+                <span>Attributes extracted & fingerprinted</span>
               </div>
             </div>
+
             <div className="lineage-step">
-              <span
-                className={`lineage-dot ${item.national_material ? "done" : "review"}`}
-              >
-                <ShieldCheck size={14} />
+              <span className={`lineage-dot ${item.national_material ? "done" : "review"}`}>
+                <ShieldCheck size={16} />
               </span>
               <div>
-                <b>
-                  {item.national_material
-                    ? "Mapped to national material"
-                    : "Human review"}
-                </b>
+                <b>{item.national_material ? "3. National Code Mapped" : "3. Review Pending"}</b>
                 <span>
-                  {item.national_material?.national_code ??
-                    "Approval required before mapping"}
+                  {item.national_material
+                    ? item.national_material.national_code
+                    : "Awaiting human reviewer decision"}
                 </span>
               </div>
             </div>
-            <div className="lineage-foot">
-              <History size={14} /> Traceable source history
+
+            <div
+              style={{
+                marginTop: "16px",
+                paddingTop: "14px",
+                borderTop: "1px solid var(--border-subtle)",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "11px",
+                color: "var(--text-muted)",
+              }}
+            >
+              <History size={14} style={{ color: "var(--brand-primary)" }} />
+              <span>Full audit history logged and preserved</span>
             </div>
           </div>
-          <div className="panel detail-link-panel">
-            <h3>Related records</h3>
-            <p>
-              Search for similar source records or view the national master.
+
+          {/* Related Actions Panel */}
+          <div className="panel detail-panel">
+            <h3 style={{ fontSize: "14px", marginBottom: "8px" }}>Explore Related Records</h3>
+            <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "14px", lineHeight: 1.5 }}>
+              Query the national database for materials sharing the same grade, category or dimensions.
             </p>
-            <Link
-              to={`/materials?q=${encodeURIComponent(item.grade ?? item.legacy_material_code)}`}
-              className="text-link"
-            >
-              Find similar materials <ArrowRight size={14} />
-            </Link>
-            {item.national_material && (
-              <Link to="/national-materials" className="text-link">
-                {item.national_material.national_code} <Link2 size={14} />
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <Link
+                to={`/materials?q=${encodeURIComponent(item.grade ?? item.legacy_material_code)}`}
+                className="button button-outline"
+                style={{ justifyContent: "flex-start", fontSize: "12px" }}
+              >
+                Find similar materials <ArrowRight size={14} style={{ marginLeft: "auto" }} />
               </Link>
-            )}
+
+              {item.national_material && (
+                <Link
+                  to="/national-materials"
+                  className="button button-soft"
+                  style={{ justifyContent: "flex-start", fontSize: "12px" }}
+                >
+                  <Link2 size={14} /> National Master ({item.national_material.national_code})
+                </Link>
+              )}
+
+              <Link
+                to="/duplicates"
+                className="button button-quiet"
+                style={{ justifyContent: "flex-start", fontSize: "12px" }}
+              >
+                Check Duplicate Clusters <ArrowRight size={14} style={{ marginLeft: "auto" }} />
+              </Link>
+            </div>
           </div>
         </aside>
       </div>
     </>
   );
 }
+
 function Info({
   label,
   value,
