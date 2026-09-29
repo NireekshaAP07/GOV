@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Boxes,
-  CheckCircle2,
   GitCompareArrows,
   History,
   Landmark,
